@@ -1,0 +1,13 @@
+[package]
+authors = ["BurntPizza <xburntpizza@gmail.com>"]
+name = "dataflow"
+version = "0.1.0"
+
+[dependencies]
+
+[dependencies.petgraph]
+optional = true
+version = "*"
+
+[features]
+default = [ "petgraph" ]
