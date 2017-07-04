@@ -8,9 +8,6 @@ mod petgraph;
 #[cfg(feature = "petgraph")]
 pub use petgraph::*;
 
-pub use Direction::*;
-pub use Mode::*;
-
 use std::hash::Hash;
 use std::collections::VecDeque;
 
@@ -24,7 +21,7 @@ pub trait Graph<Idx> {
 }
 
 pub trait State {
-    type NodeIdx;
+    type NodeIdx: Copy;
     type Idx;
     type Set: Set<Self::Idx>;
 
@@ -46,78 +43,129 @@ pub trait Analysis {
     fn from(state: Self::State) -> Self;
 }
 
-pub enum Direction {
-    Forward,
-    Backward,
+pub trait Direction {
+    #[doc(hidden)]
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx;
+    #[doc(hidden)]
+    fn inputs<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors;
+    #[doc(hidden)]
+    fn assign_a<S: State>(state: &mut S, n: S::NodeIdx, a: S::Set);
+    #[doc(hidden)]
+    fn get_mut_b<S: State>(state: &mut S, n: S::NodeIdx) -> &mut S::Set;
+    #[doc(hidden)]
+    fn affected<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors;
 }
 
-pub enum Mode {
-    May,
-    Must,
+pub struct Forward;
+pub struct Backward;
+
+impl Direction for Forward {
+    #[doc(hidden)]
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx {
+        g.entry()
+    }
+
+    #[doc(hidden)]
+    fn inputs<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors {
+        g.immediate_predecessors(n)
+    }
+
+    #[doc(hidden)]
+    fn assign_a<S: State>(state: &mut S, n: S::NodeIdx, a: S::Set) {
+        *state.in_facts(n) = a;
+    }
+
+    #[doc(hidden)]
+    fn get_mut_b<S: State>(state: &mut S, n: S::NodeIdx) -> &mut S::Set {
+        state.out_facts(n)
+    }
+
+    #[doc(hidden)]
+    fn affected<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors {
+        g.immediate_successors(n)
+    }
 }
 
-pub fn analyze<A, G, S, State, Idx, NodeIdx>(
-    g: G,
-    initial: State,
-    dir: Direction,
-    mode: Mode,
-) -> A
+impl Direction for Backward {
+    #[doc(hidden)]
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx {
+        g.exit()
+    }
+
+    #[doc(hidden)]
+    fn inputs<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors {
+        g.immediate_successors(n)
+    }
+
+    #[doc(hidden)]
+    fn assign_a<S: State>(state: &mut S, n: S::NodeIdx, a: S::Set) {
+        *state.out_facts(n) = a;
+    }
+
+    #[doc(hidden)]
+    fn get_mut_b<S: State>(state: &mut S, n: S::NodeIdx) -> &mut S::Set {
+        state.in_facts(n)
+    }
+
+    #[doc(hidden)]
+    fn affected<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors {
+        g.immediate_predecessors(n)
+    }
+}
+
+pub trait Mode {
+    #[doc(hidden)]
+    fn op<T, S: Set<T>>(this: S, other: &S) -> S;
+}
+
+pub struct May;
+pub struct Must;
+
+impl Mode for May {
+    #[doc(hidden)]
+    fn op<T, S: Set<T>>(this: S, other: &S) -> S {
+        this.union(other)
+    }
+}
+
+impl Mode for Must {
+    #[doc(hidden)]
+    fn op<T, S: Set<T>>(this: S, other: &S) -> S {
+        this.intersection(other)
+    }
+}
+
+#[allow(unused_variables)]
+pub fn analyze<D, M, A, G, S, St, Idx, NodeIdx>(g: G, initial: St, dir: D, mode: M) -> A
 where
-    A: Analysis<State = State>,
+    A: Analysis<State = St>,
     G: Graph<NodeIdx>,
     S: Set<Idx>,
+    D: Direction,
+    M: Mode,
     NodeIdx: Copy,
     Idx: Eq + Hash + Copy,
-    State: self::State<Idx = Idx, NodeIdx = NodeIdx, Set = S>,
+    St: self::State<Idx = Idx, NodeIdx = NodeIdx, Set = S>,
 {
     let mut state = initial;
-
-    let op = match mode {
-        May => S::union,
-        Must => S::intersection,
-    };
-
-    let start = match dir {
-        Forward => g.entry(),
-        Backward => g.exit(),
-    };
-
-    let inputs = |n| match dir {
-        Forward => g.immediate_predecessors(n),
-        Backward => g.immediate_successors(n),
-    };
-
-    let mut work_list = VecDeque::from(vec![start]);
+    let mut work_list = VecDeque::from(vec![D::start(&g)]);
 
     while let Some(n) = work_list.pop_front() {
         let a = {
             let mut a = S::empty();
-            for i in inputs(n) {
-                let pm = match dir {
-                    Forward => state.out_facts(i),
-                    Backward => state.in_facts(i),
-                };
-                a = op(a, pm);
+            for i in D::inputs(&g, n) {
+                a = M::op(a, D::get_mut_b(&mut state, i));
             }
             a
         };
 
         let b = a.difference(state.kill(n)).union(state.gen(n));
-
-        let (state_b, next) = match dir {
-            Forward => {
-                *state.in_facts(n) = a;
-                (state.out_facts(n), g.immediate_successors(n))
-            }
-            Backward => {
-                *state.out_facts(n) = a;
-                (state.in_facts(n), g.immediate_predecessors(n))
-            }
-        };
+        D::assign_a(&mut state, n, a);
+        let state_b = D::get_mut_b(&mut state, n);
 
         if *state_b != b {
             *state_b = b;
-            work_list.extend(next);
+            work_list.extend(D::affected(&g, n));
         }
     }
 
