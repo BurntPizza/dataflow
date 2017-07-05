@@ -6,25 +6,13 @@ use pg::{graph, stable_graph};
 use ::*;
 
 macro_rules! graph_impl {
-    ($($t:tt),*; $ty:ty, $neighbors:ty) => {
+    ($($t:tt),*; $ty:ty, $neighbors:ty, $iter:ty) => {
         impl<'a, $($t),*> Graph<NodeIndex> for &'a $ty {
+            type Iter = $iter;
             type Neighbors = $neighbors;
-
-            fn entry(&self) -> NodeIndex {
+ 
+            fn nodes(&self) -> Self::Iter {
                 self.node_indices()
-                    .filter(|i| {
-                        self.neighbors_directed(*i, Incoming).count() == 0
-                    })
-                    .next()
-                    .unwrap()
-            }
-
-            fn exit(&self) -> NodeIndex {
-                self.node_indices()
-                    .rev()
-                    .filter(|i| self.neighbors(*i).count() == 0)
-                    .next()
-                    .unwrap()
             }
 
             fn immediate_predecessors(&self, node: NodeIndex) -> Self::Neighbors {
@@ -38,5 +26,5 @@ macro_rules! graph_impl {
     };
 }
 
-graph_impl!(N, E; graph::DiGraph<N, E>, graph::Neighbors<'a, E>);
-graph_impl!(N, E; stable_graph::StableDiGraph<N, E>, stable_graph::Neighbors<'a, E>);
+graph_impl!(N, E; graph::DiGraph<N, E>, graph::Neighbors<'a, E>, graph::NodeIndices);
+graph_impl!(N, E; stable_graph::StableDiGraph<N, E>, stable_graph::Neighbors<'a, E>, stable_graph::NodeIndices<'a, N>);

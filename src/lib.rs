@@ -12,10 +12,10 @@ use std::hash::Hash;
 use std::collections::VecDeque;
 
 pub trait Graph<Idx> {
+    type Iter: IntoIterator<Item = Idx>;
     type Neighbors: IntoIterator<Item = Idx>;
 
-    fn entry(&self) -> Idx;
-    fn exit(&self) -> Idx;
+    fn nodes(&self) -> Self::Iter;
     fn immediate_predecessors(&self, node: Idx) -> Self::Neighbors;
     fn immediate_successors(&self, node: Idx) -> Self::Neighbors;
 }
@@ -45,7 +45,7 @@ pub trait Analysis {
 
 pub trait Direction {
     #[doc(hidden)]
-    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx;
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> VecDeque<Idx>;
     #[doc(hidden)]
     fn inputs<Idx, G: Graph<Idx>>(g: &G, n: Idx) -> G::Neighbors;
     #[doc(hidden)]
@@ -61,8 +61,8 @@ pub struct Backward;
 
 impl Direction for Forward {
     #[doc(hidden)]
-    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx {
-        g.entry()
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> VecDeque<Idx> {
+        g.nodes().into_iter().collect()
     }
 
     #[doc(hidden)]
@@ -88,8 +88,9 @@ impl Direction for Forward {
 
 impl Direction for Backward {
     #[doc(hidden)]
-    fn start<Idx, G: Graph<Idx>>(g: &G) -> Idx {
-        g.exit()
+    fn start<Idx, G: Graph<Idx>>(g: &G) -> VecDeque<Idx> {
+        let v: Vec<_> = g.nodes().into_iter().collect();
+        v.into_iter().rev().collect()
     }
 
     #[doc(hidden)]
@@ -148,7 +149,7 @@ where
     St: self::State<Idx = Idx, NodeIdx = NodeIdx, Set = S>,
 {
     let mut state = initial;
-    let mut work_list = VecDeque::from(vec![D::start(&g)]);
+    let mut work_list = D::start(&g);
 
     while let Some(n) = work_list.pop_front() {
         let a = {
