@@ -148,6 +148,22 @@ where
     Idx: Eq + Hash + Copy,
     St: self::State<Idx = Idx, NodeIdx = NodeIdx, Set = S>,
 {
+    analyze_kfn(g, initial, dir, mode, |a, k| a.difference(k))
+}
+
+#[allow(unused_variables)]
+pub fn analyze_kfn<D, M, A, G, F, S, St, Idx, NodeIdx>(g: G, initial: St, dir: D, mode: M, kfn: F) -> A
+where
+    A: Analysis<State = St>,
+    G: Graph<NodeIdx>,
+    S: Set<Idx>,
+    D: Direction,
+    M: Mode,
+    F: Fn(&S, &S) -> S,
+    NodeIdx: Copy,
+    Idx: Eq + Hash + Copy,
+    St: self::State<Idx = Idx, NodeIdx = NodeIdx, Set = S>,
+{
     let mut state = initial;
     let mut work_list = D::start(&g);
 
@@ -160,7 +176,7 @@ where
             a
         };
 
-        let b = a.difference(state.kill(n)).union(state.gen(n));
+        let b = kfn(&a, state.kill(n)).union(state.gen(n));
         D::assign_a(&mut state, n, a);
         let state_b = D::get_mut_b(&mut state, n);
 
@@ -172,6 +188,7 @@ where
 
     A::from(state)
 }
+
 
 use std::collections::HashSet;
 
