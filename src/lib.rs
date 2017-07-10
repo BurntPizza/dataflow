@@ -152,7 +152,13 @@ where
 }
 
 #[allow(unused_variables)]
-pub fn analyze_kfn<D, M, A, G, F, S, St, Idx, NodeIdx>(g: G, initial: St, dir: D, mode: M, kfn: F) -> A
+pub fn analyze_kfn<D, M, A, G, F, S, St, Idx, NodeIdx>(
+    g: G,
+    initial: St,
+    dir: D,
+    mode: M,
+    kfn: F,
+) -> A
 where
     A: Analysis<State = St>,
     G: Graph<NodeIdx>,
@@ -169,11 +175,17 @@ where
 
     while let Some(n) = work_list.pop_front() {
         let a = {
-            let mut a = S::empty();
-            for i in D::inputs(&g, n) {
-                a = M::op(a, D::get_mut_b(&mut state, i));
-            }
-            a
+            // analogous to split_first
+            let mut inputs = D::inputs(&g, n).into_iter();
+            inputs.next()
+                .map(|a_idx| {
+                    let mut a = D::get_mut_b(&mut state, a_idx).clone();
+                    for i in inputs {
+                        a = M::op(a, D::get_mut_b(&mut state, i));
+                    }
+                    a
+                })
+                .unwrap_or_else(S::empty)
         };
 
         let b = kfn(&a, state.kill(n)).union(state.gen(n));
